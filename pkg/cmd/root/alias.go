@@ -52,6 +52,17 @@ func NewCmdShellAlias(io *iostreams.IOStreams, aliasName, aliasValue string) *co
 	return cmd
 }
 
+type aliasInvocation struct {
+	cmdPath string
+	args    []string
+}
+
+func (a aliasInvocation) Equal(other aliasInvocation) bool {
+	return a.cmdPath == other.cmdPath && slices.Equal(a.args, other.args)
+}
+
+const maxAliasExpansionDepth = 50
+
 type aliasExecutionKey struct{}
 
 func NewCmdAlias(io *iostreams.IOStreams, aliasName, aliasValue string) *cobra.Command {
@@ -59,21 +70,38 @@ func NewCmdAlias(io *iostreams.IOStreams, aliasName, aliasValue string) *cobra.C
 		Use:   aliasName,
 		Short: fmt.Sprintf("Alias for %q", text.Truncate(80, aliasValue)),
 		RunE: func(c *cobra.Command, args []string) error {
-			cmdPath := c.CommandPath()
+			current := aliasInvocation{
+				cmdPath: c.CommandPath(),
+				args:    slices.Clone(args),
+			}
 			ctx := c.Root().Context()
 			if ctx == nil {
 				ctx = context.Background()
 			}
-			var visited []string
-			if v, ok := ctx.Value(aliasExecutionKey{}).([]string); ok {
+			var visited []aliasInvocation
+			if v, ok := ctx.Value(aliasExecutionKey{}).([]aliasInvocation); ok {
 				visited = v
 			}
+
+			if len(visited) >= maxAliasExpansionDepth {
+				var chain []string
+				for _, inv := range visited {
+					chain = append(chain, inv.cmdPath)
+				}
+				chain = append(chain, current.cmdPath)
+				return fmt.Errorf("alias expansion depth exceeded (%d): %s", maxAliasExpansionDepth, strings.Join(chain, " -> "))
+			}
+
 			for _, prev := range visited {
-				if prev == cmdPath {
-					return fmt.Errorf("infinite alias expansion: %s -> %s", strings.Join(visited, " -> "), cmdPath)
+				if prev.Equal(current) {
+					var chain []string
+					for _, inv := range visited {
+						chain = append(chain, inv.cmdPath)
+					}
+					return fmt.Errorf("infinite alias expansion: %s -> %s", strings.Join(chain, " -> "), current.cmdPath)
 				}
 			}
-			newVisited := append(slices.Clone(visited), cmdPath)
+			newVisited := append(slices.Clone(visited), current)
 			newCtx := context.WithValue(ctx, aliasExecutionKey{}, newVisited)
 
 			expandedArgs, err := expandAlias(aliasValue, args)

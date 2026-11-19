@@ -170,3 +170,42 @@ func TestNewCmdAlias_nonCyclic(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, executed)
 }
+
+func TestNewCmdAlias_terminatingRevisit(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	rootCmd := &cobra.Command{Use: "gh"}
+	rootCmd.AddGroup(&cobra.Group{ID: "alias", Title: "Alias commands"})
+
+	issueCmd := &cobra.Command{Use: "issue"}
+	issueCmd.AddGroup(&cobra.Group{ID: "alias", Title: "Alias commands"})
+	var targetArgs []string
+	listCmd := &cobra.Command{
+		Use: "list",
+		Run: func(cmd *cobra.Command, args []string) {
+			targetArgs = args
+		},
+	}
+	issueCmd.AddCommand(listCmd)
+
+	aliasCmd := NewCmdAlias(ios, "next", `issue $1`)
+	issueCmd.AddCommand(aliasCmd)
+	rootCmd.AddCommand(issueCmd)
+
+	rootCmd.SetArgs([]string{"issue", "next", "next", "list"})
+	err := rootCmd.Execute()
+	require.NoError(t, err)
+	assert.NotNil(t, targetArgs)
+}
+
+func TestNewCmdAlias_runawayExpansion(t *testing.T) {
+	ios, _, _, _ := iostreams.Test()
+	rootCmd := &cobra.Command{Use: "gh"}
+	rootCmd.AddGroup(&cobra.Group{ID: "alias", Title: "Alias commands"})
+
+	aliasCmd := NewCmdAlias(ios, "runaway", "runaway x")
+	rootCmd.AddCommand(aliasCmd)
+	rootCmd.SetArgs([]string{"runaway"})
+	err := rootCmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "alias expansion depth exceeded")
+}
