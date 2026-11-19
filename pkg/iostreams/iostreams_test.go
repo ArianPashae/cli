@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStopAlternateScreenBuffer(t *testing.T) {
@@ -75,19 +78,14 @@ func TestIOStreams_StartPager_emptyArgs(t *testing.T) {
 			ios.SetStdoutTTY(true)
 			ios.SetPager(tt.pagerCommand)
 
-			if err := ios.StartPager(); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, ios.StartPager())
 
-			if _, err := fmt.Fprintln(ios.Out, "hello world"); err != nil {
-				t.Fatalf("failed to write to Out: %v", err)
-			}
+			_, err := fmt.Fprintln(ios.Out, "hello world")
+			require.NoError(t, err)
 
 			ios.StopPager()
 
-			if got := stdout.String(); got != "hello world\n" {
-				t.Errorf("expected %q, got %q", "hello world\n", got)
-			}
+			assert.Equal(t, "hello world\n", stdout.String())
 		})
 	}
 }
